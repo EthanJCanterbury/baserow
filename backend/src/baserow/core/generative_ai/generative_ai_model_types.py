@@ -385,6 +385,40 @@ class OllamaGenerativeAIModelType(GenerativeAIModelType):
         return OllamaSettingsSerializer
 
 
+class ShuttleAIGenerativeAIModelType(BaseOpenAIGenerativeAIModelType):
+    """
+    The ShuttleAI API is compatible with the OpenAI API.
+    """
+
+    type = "shuttleai"
+
+    def get_api_key(self, workspace=None, settings_override=None):
+        return (
+            self.get_workspace_setting(workspace, "api_key", settings_override)
+            or settings.BASEROW_SHUTTLEAI_API_KEY
+        )
+
+    def get_enabled_models(self, workspace=None, settings_override=None):
+        workspace_models = self.get_workspace_setting(
+            workspace, "models", settings_override
+        )
+        return workspace_models or settings.BASEROW_SHUTTLEAI_MODELS
+
+    def get_organization(self, workspace=None, settings_override=None):
+        return None
+
+    def get_base_url(self, workspace=None, settings_override=None):
+        return "https://api.shuttleai.com/v1"
+
+    def get_settings_serializer(self):
+        from baserow.api.generative_ai.serializers import ShuttleAISettingsSerializer
+
+        return ShuttleAISettingsSerializer
+
+    def is_file_compatible(self, file_name):
+        return False
+
+
 class OpenRouterGenerativeAIModelType(BaseOpenAIGenerativeAIModelType):
     """
     The OpenRouter API is compatible with the OpenAI API.

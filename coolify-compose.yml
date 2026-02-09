@@ -1,0 +1,93 @@
+services:
+  baserow:
+    image: 'ghcr.io/ethancroissants/baserow:latest'
+    expose:
+      - '80'
+    environment:
+      SECRET_KEY: '${SERVICE_PASSWORD_64_SECRET}'
+      BASEROW_JWT_SIGNING_KEY: '${SERVICE_PASSWORD_64_JWT}'
+      BASEROW_PUBLIC_URL: '${SERVICE_FQDN_BASEROW:-http://localhost}'
+      BASEROW_CADDY_ADDRESSES: ':80'
+      BASEROW_ENABLE_SECURE_PROXY_SSL_HEADER: 'yes'
+      BASEROW_DISABLE_PUBLIC_URL_CHECK: 'true'
+      BASEROW_WEB_FRONTEND_STARTUP_COMMAND: 'nuxt-prod'
+      DATABASE_HOST: db
+      DATABASE_PORT: '5432'
+      DATABASE_USER: '${SERVICE_USER_DB}'
+      DATABASE_PASSWORD: '${SERVICE_PASSWORD_DB}'
+      DATABASE_NAME: baserow
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD: '${SERVICE_PASSWORD_64_REDIS}'
+      MIGRATE_ON_STARTUP: 'true'
+      SYNC_TEMPLATES_ON_STARTUP: 'false'
+      FROM_EMAIL: '${FROM_EMAIL}'
+      EMAIL_SMTP: '${EMAIL_SMTP}'
+      EMAIL_SMTP_HOST: '${EMAIL_SMTP_HOST}'
+      EMAIL_SMTP_PORT: '${EMAIL_SMTP_PORT}'
+      EMAIL_SMTP_USE_TLS: '${EMAIL_SMTP_USE_TLS}'
+      EMAIL_SMTP_USER: '${EMAIL_SMTP_USER}'
+      EMAIL_SMTP_PASSWORD: '${EMAIL_SMTP_PASSWORD}'
+      BASEROW_OPENAI_API_KEY: '${BASEROW_OPENAI_API_KEY}'
+      BASEROW_OPENAI_MODELS: '${BASEROW_OPENAI_MODELS}'
+      BASEROW_ANTHROPIC_API_KEY: '${BASEROW_ANTHROPIC_API_KEY}'
+      BASEROW_ANTHROPIC_MODELS: '${BASEROW_ANTHROPIC_MODELS}'
+      BASEROW_OLLAMA_HOST: '${BASEROW_OLLAMA_HOST}'
+      BASEROW_OLLAMA_MODELS: '${BASEROW_OLLAMA_MODELS}'
+      BASEROW_SHUTTLEAI_API_KEY: '${BASEROW_SHUTTLEAI_API_KEY}'
+      BASEROW_SHUTTLEAI_MODELS: '${BASEROW_SHUTTLEAI_MODELS}'
+    volumes:
+      - 'baserow-data:/baserow/data'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -sf http://localhost/api/_health/ || exit 1'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  db:
+    image: 'pgvector/pgvector:pg15'
+    environment:
+      POSTGRES_USER: '${SERVICE_USER_DB}'
+      POSTGRES_PASSWORD: '${SERVICE_PASSWORD_DB}'
+      POSTGRES_DB: baserow
+    volumes:
+      - 'pgdata:/var/lib/postgresql/data'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}'
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: 'redis:7'
+    command:
+      - redis-server
+      - '--requirepass'
+      - '${SERVICE_PASSWORD_64_REDIS}'
+    volumes:
+      - 'redis-data:/data'
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - '-a'
+        - '${SERVICE_PASSWORD_64_REDIS}'
+        - PING
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  baserow-data:
+  pgdata:
+  redis-data:

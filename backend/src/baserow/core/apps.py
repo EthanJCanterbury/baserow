@@ -450,6 +450,7 @@ class CoreConfig(AppConfig):
             OllamaGenerativeAIModelType,
             OpenAIGenerativeAIModelType,
             OpenRouterGenerativeAIModelType,
+            ShuttleAIGenerativeAIModelType,
         )
         from baserow.core.generative_ai.registries import (
             generative_ai_model_type_registry,
@@ -460,6 +461,7 @@ class CoreConfig(AppConfig):
         generative_ai_model_type_registry.register(MistralGenerativeAIModelType())
         generative_ai_model_type_registry.register(OllamaGenerativeAIModelType())
         generative_ai_model_type_registry.register(OpenRouterGenerativeAIModelType())
+        generative_ai_model_type_registry.register(ShuttleAIGenerativeAIModelType())
 
         # Must import the Posthog signal, otherwise it won't work.
         import baserow.core.posthog  # noqa: F403, F401

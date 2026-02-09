@@ -58,6 +58,15 @@ class OllamaSettingsSerializer(GenerativeAIModelsSerializer):
     )
 
 
+class ShuttleAISettingsSerializer(GenerativeAIModelsSerializer):
+    api_key = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        help_text="The ShuttleAI API key that is used to authenticate with the "
+        "ShuttleAI API.",
+    )
+
+
 class OpenRouterSettingsSerializer(BaseOpenAISettingsSerializer):
     api_key = serializers.CharField(
         allow_blank=True,

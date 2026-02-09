@@ -187,6 +187,38 @@ export class OllamaModelType extends GenerativeAIModelType {
   }
 }
 
+export class ShuttleAIModelType extends GenerativeAIModelType {
+  static getType() {
+    return 'shuttleai'
+  }
+
+  getName() {
+    const { $i18n: i18n } = this.app
+    return i18n.t('generativeAIModelType.shuttleAI')
+  }
+
+  getSettings() {
+    const { $i18n: i18n } = this.app
+    return [
+      {
+        key: 'api_key',
+        label: i18n.t('generativeAIModelType.shuttleAIApiKeyLabel'),
+        description: i18n.t(
+          'generativeAIModelType.shuttleAIApiKeyDescription'
+        ),
+      },
+      modelSettings(
+        i18n.t('generativeAIModelType.shuttleAIModelsLabel'),
+        i18n.t('generativeAIModelType.shuttleAIModelsDescription')
+      ),
+    ]
+  }
+
+  getOrder() {
+    return 55
+  }
+}
+
 export class OpenRouterModelType extends GenerativeAIModelType {
   static getType() {
     return 'openrouter'

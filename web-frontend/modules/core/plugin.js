@@ -28,6 +28,7 @@ import {
   AnthropicModelType,
   MistralModelType,
   OpenRouterModelType,
+  ShuttleAIModelType,
 } from '@baserow/modules/core/generativeAIModelTypes'
 import {
   UploadFileUserFileUploadType,
@@ -179,6 +180,7 @@ export default defineNuxtPlugin({
     registry.register('generativeAIModel', new MistralModelType(context))
     registry.register('generativeAIModel', new OllamaModelType(context))
     registry.register('generativeAIModel', new OpenRouterModelType(context))
+    registry.register('generativeAIModel', new ShuttleAIModelType(context))
 
     registry.register(
       'permissionManager',

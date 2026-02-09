@@ -350,7 +350,12 @@
     "openRouterApiKeyDescription": "Provide an OpenRouter API key if you would like to enable the integration. [get an API key](https://openrouter.ai/settings/keys).",
     "openRouterOrganization": "Organization (optional)",
     "openRouterModelsLabel": "Enabled Models",
-    "openRouterModelsDescription": "Provide a list of comma separated [OpenRouter models](https://openrouter.ai/models) that can be used in Baserow. (e.g. `openai/gpt-4o,anthropic/claude-3-haiku`)"
+    "openRouterModelsDescription": "Provide a list of comma separated [OpenRouter models](https://openrouter.ai/models) that can be used in Baserow. (e.g. `openai/gpt-4o,anthropic/claude-3-haiku`)",
+    "shuttleAI": "ShuttleAI",
+    "shuttleAIApiKeyLabel": "API Key",
+    "shuttleAIApiKeyDescription": "Provide a ShuttleAI API key if you would like to enable the integration. [get an API key](https://shuttleai.com).",
+    "shuttleAIModelsLabel": "Enabled Models",
+    "shuttleAIModelsDescription": "Provide a list of comma separated [ShuttleAI models](https://docs.shuttleai.com) that can be used in Baserow. (e.g. `shuttle-3,shuttle-3-mini`)"
   },
   "generativeAIWorkspaceSettings": {
     "title": "Generative AI settings",
