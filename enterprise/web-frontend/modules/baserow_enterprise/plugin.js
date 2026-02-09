@@ -19,6 +19,7 @@ import {
   SamlAuthProviderType,
 } from '@baserow_enterprise/authProviderTypes'
 import { TeamsWorkspaceSettingsPageType } from '@baserow_enterprise/workspaceSettingsPageTypes'
+import { AssistantWorkspaceSettingsType } from '@baserow_enterprise/workspaceSettingsTypes'
 import { EnterpriseMembersPagePluginType } from '@baserow_enterprise/membersPagePluginTypes'
 import en from '@baserow_enterprise/locales/en.json'
 import fr from '@baserow_enterprise/locales/fr.json'
@@ -152,6 +153,11 @@ export default defineNuxtPlugin({
     $registry.register(
       'workspaceSettingsPage',
       new TeamsWorkspaceSettingsPageType(context)
+    )
+
+    $registry.register(
+      'workspaceSettings',
+      new AssistantWorkspaceSettingsType(context)
     )
 
     $registry.register('job', new AuditLogExportJobType(context))

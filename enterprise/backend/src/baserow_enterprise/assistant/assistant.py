@@ -1,5 +1,5 @@
+import logging
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any, AsyncGenerator, Callable, Tuple, TypedDict
 
 from django.conf import settings
@@ -10,6 +10,8 @@ import udspy
 from udspy.callback import BaseCallback
 
 from baserow.api.sessions import get_client_undo_redo_action_group_id
+from baserow.core.generative_ai.registries import generative_ai_model_type_registry
+from baserow.core.models import Workspace
 from baserow_enterprise.assistant.exceptions import (
     AssistantMessageCancelled,
     AssistantModelNotSupportedError,
@@ -32,6 +34,8 @@ from .types import (
     ChatTitleMessage,
     HumanMessage,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -143,32 +147,116 @@ def set_assistant_cancellation_key(chat_uuid: str, timeout: int = 300) -> None:
 
 
 def get_lm_client(
+    workspace: Workspace | None = None,
     model: str | None = None,
 ) -> "Assistant":
     """
-    Returns a udspy.LM client configured with the specified model or the default model.
+    Returns a udspy.LM client configured for the assistant. If workspace settings
+    contain an ``_assistant`` configuration (ai_type + ai_model), the matching
+    generative-AI provider's API key and base_url are resolved from the workspace
+    settings and used to build the client. Falls back to the legacy env-var based
+    configuration when no workspace setting is present.
 
-    :param model: The language model to use. If None, the default model from settings
-        will be used.
-    :return: A udspy.LM instance.
+    :param workspace: The workspace whose settings should be consulted.
+    :param model: An explicit model override. When *None*, the model is derived
+        from workspace settings or from the ``BASEROW_ENTERPRISE_ASSISTANT_LLM_MODEL``
+        Django setting.
+    :return: A ``udspy.LM`` instance.
     """
 
-    return udspy.LM(model=model or settings.BASEROW_ENTERPRISE_ASSISTANT_LLM_MODEL)
+    api_key = None
+    base_url = None
+
+    if workspace is not None:
+        ws_settings = workspace.generative_ai_models_settings or {}
+        assistant_cfg = ws_settings.get("_assistant", {})
+        ai_type = assistant_cfg.get("ai_type")
+        ai_model = assistant_cfg.get("ai_model")
+
+        if ai_type and ai_model:
+            # Use the configured provider's credentials
+            try:
+                model_type = generative_ai_model_type_registry.get(ai_type)
+
+                if hasattr(model_type, "get_api_key"):
+                    api_key = model_type.get_api_key(workspace)
+                if hasattr(model_type, "get_base_url"):
+                    base_url = model_type.get_base_url(workspace)
+
+                # For Ollama, use host as base_url
+                if hasattr(model_type, "get_host") and not base_url:
+                    host = model_type.get_host(workspace)
+                    if host:
+                        base_url = f"{host.rstrip('/')}/v1"
+
+                # UDSPy expects model strings like "openai/gpt-4o"
+                model = f"openai/{ai_model}"
+            except Exception:
+                logger.warning(
+                    "Failed to resolve assistant AI provider '%s' from workspace "
+                    "settings, falling back to env config.",
+                    ai_type,
+                    exc_info=True,
+                )
+
+    if model is None:
+        model = settings.BASEROW_ENTERPRISE_ASSISTANT_LLM_MODEL
+
+    kwargs = {}
+    if api_key:
+        kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["base_url"] = base_url
+
+    return udspy.LM(model=model, **kwargs)
 
 
-@lru_cache(maxsize=1)
-def check_lm_ready_or_raise() -> None:
+def check_lm_ready_or_raise(workspace: Workspace | None = None) -> None:
     """
-    Checks if the configured LLM is ready by making a test call. Raises
-    AssistantModelNotSupportedError if the model is not supported or accessible.
+    Checks if the assistant LLM is configured and accessible. When workspace
+    settings contain an ``_assistant`` configuration, validates that a provider
+    and model are set and the provider has credentials. Falls back to the env-var
+    based default model check.
+
+    :param workspace: The workspace to check configuration for.
     """
 
-    lm = get_lm_client()
-    try:
-        lm("Respond in JSON: {'response': 'ok'}")
-    except Exception as e:
+    if workspace is not None:
+        ws_settings = workspace.generative_ai_models_settings or {}
+        assistant_cfg = ws_settings.get("_assistant", {})
+        ai_type = assistant_cfg.get("ai_type")
+        ai_model = assistant_cfg.get("ai_model")
+
+        if ai_type and ai_model:
+            # Workspace-level config exists - verify the provider is accessible
+            try:
+                model_type = generative_ai_model_type_registry.get(ai_type)
+                has_key = (
+                    hasattr(model_type, "get_api_key")
+                    and model_type.get_api_key(workspace)
+                )
+                has_host = (
+                    hasattr(model_type, "get_host")
+                    and model_type.get_host(workspace)
+                )
+                if not has_key and not has_host:
+                    raise AssistantModelNotSupportedError(
+                        f"No API key or host configured for provider '{ai_type}'."
+                    )
+                return  # Provider is configured
+            except AssistantModelNotSupportedError:
+                raise
+            except Exception as e:
+                raise AssistantModelNotSupportedError(
+                    f"Failed to resolve AI provider '{ai_type}': {e}"
+                )
+
+    # Fall back to env-var based check
+    model = settings.BASEROW_ENTERPRISE_ASSISTANT_LLM_MODEL
+    if not model:
         raise AssistantModelNotSupportedError(
-            f"The model '{lm.model}' is not supported or accessible: {e}"
+            "No assistant LLM model configured. Configure it in workspace settings "
+            "or set the BASEROW_ENTERPRISE_ASSISTANT_LLM_MODEL environment variable."
         )
 
 
@@ -178,7 +266,7 @@ class Assistant:
         self._user = chat.user
         self._workspace = chat.workspace
 
-        self._lm_client = get_lm_client()
+        self._lm_client = get_lm_client(workspace=self._workspace)
         self._init_assistant()
 
     def _init_assistant(self):

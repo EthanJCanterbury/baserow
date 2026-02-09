@@ -2,11 +2,14 @@ import json
 from urllib.request import Request
 from uuid import uuid4
 
+from django.db import transaction
 from django.http import StreamingHttpResponse
 
 from drf_spectacular.openapi import OpenApiParameter, OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from loguru import logger
+from rest_framework import serializers
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.status import HTTP_204_NO_CONTENT
 from rest_framework.views import APIView
@@ -16,13 +19,22 @@ from baserow.api.decorators import (
     validate_body,
     validate_query_parameters,
 )
-from baserow.api.errors import ERROR_GROUP_DOES_NOT_EXIST, ERROR_USER_NOT_IN_GROUP
+from baserow.api.errors import (
+    ERROR_GROUP_DOES_NOT_EXIST,
+    ERROR_USER_INVALID_GROUP_PERMISSIONS,
+    ERROR_USER_NOT_IN_GROUP,
+)
 from baserow.api.pagination import LimitOffsetPagination
 from baserow.api.schemas import get_error_schema
 from baserow.api.serializers import get_example_pagination_serializer_class
 from baserow.api.sessions import set_client_undo_redo_action_group_id
-from baserow.core.exceptions import UserNotInWorkspace, WorkspaceDoesNotExist
+from baserow.core.exceptions import (
+    UserInvalidWorkspacePermissionsError,
+    UserNotInWorkspace,
+    WorkspaceDoesNotExist,
+)
 from baserow.core.handler import CoreHandler
+from baserow.core.operations import UpdateWorkspaceOperationType
 from baserow_enterprise.assistant.assistant import (
     check_lm_ready_or_raise,
     set_assistant_cancellation_key,
@@ -157,7 +169,7 @@ class AssistantChatView(APIView):
             context=workspace,
         )
 
-        check_lm_ready_or_raise()
+        check_lm_ready_or_raise(workspace)
         handler = AssistantHandler()
         chat, _ = handler.get_or_create_chat(request.user, workspace, chat_uuid)
 
@@ -316,3 +328,77 @@ class AssistantChatMessageFeedbackView(APIView):
             update_fields=["human_sentiment", "human_feedback", "updated_on"]
         )
         return Response(status=HTTP_204_NO_CONTENT)
+
+
+class AssistantSettingsSerializer(serializers.Serializer):
+    ai_type = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, default=""
+    )
+    ai_model = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, default=""
+    )
+
+
+class AssistantSettingsView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(
+        tags=["AI Assistant"],
+        operation_id="get_assistant_settings",
+        description="Returns the assistant AI settings for the given workspace.",
+        responses={200: AssistantSettingsSerializer},
+    )
+    @map_exceptions(
+        {
+            WorkspaceDoesNotExist: ERROR_GROUP_DOES_NOT_EXIST,
+            UserNotInWorkspace: ERROR_USER_NOT_IN_GROUP,
+            UserInvalidWorkspacePermissionsError: ERROR_USER_INVALID_GROUP_PERMISSIONS,
+        }
+    )
+    def get(self, request, workspace_id):
+        workspace = CoreHandler().get_workspace(workspace_id)
+        CoreHandler().check_permissions(
+            request.user,
+            UpdateWorkspaceOperationType.type,
+            workspace=workspace,
+            context=workspace,
+        )
+        settings = workspace.generative_ai_models_settings or {}
+        assistant_cfg = settings.get("_assistant", {})
+        return Response(AssistantSettingsSerializer(assistant_cfg).data)
+
+    @extend_schema(
+        tags=["AI Assistant"],
+        operation_id="update_assistant_settings",
+        description="Updates the assistant AI settings for the given workspace.",
+        request=AssistantSettingsSerializer,
+        responses={200: AssistantSettingsSerializer},
+    )
+    @transaction.atomic
+    @validate_body(AssistantSettingsSerializer, return_validated=True)
+    @map_exceptions(
+        {
+            WorkspaceDoesNotExist: ERROR_GROUP_DOES_NOT_EXIST,
+            UserNotInWorkspace: ERROR_USER_NOT_IN_GROUP,
+            UserInvalidWorkspacePermissionsError: ERROR_USER_INVALID_GROUP_PERMISSIONS,
+        }
+    )
+    def patch(self, request, workspace_id, data):
+        handler = CoreHandler()
+        workspace = handler.get_workspace_for_update(workspace_id)
+        handler.check_permissions(
+            request.user,
+            UpdateWorkspaceOperationType.type,
+            workspace=workspace,
+            context=workspace,
+        )
+        current_settings = workspace.generative_ai_models_settings or {}
+        current_settings["_assistant"] = {
+            "ai_type": data.get("ai_type", ""),
+            "ai_model": data.get("ai_model", ""),
+        }
+        workspace.generative_ai_models_settings = current_settings
+        workspace.save(update_fields=["generative_ai_models_settings"])
+        return Response(
+            AssistantSettingsSerializer(current_settings["_assistant"]).data
+        )

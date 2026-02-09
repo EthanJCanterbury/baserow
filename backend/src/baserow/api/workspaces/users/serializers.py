@@ -145,11 +145,18 @@ class WorkspaceUserWorkspaceSerializer(serializers.Serializer):
     generative_ai_models_enabled = serializers.SerializerMethodField(
         read_only=True, help_text="Generative AI models available in this workspace."
     )
+    assistant_settings = serializers.SerializerMethodField(
+        read_only=True, help_text="Kuma AI assistant settings for this workspace."
+    )
 
     def get_generative_ai_models_enabled(self, object):
         return generative_ai_model_type_registry.get_enabled_models_per_type(
             workspace=object.workspace
         )
+
+    def get_assistant_settings(self, object):
+        settings = object.workspace.generative_ai_models_settings or {}
+        return settings.get("_assistant", {})
 
 
 class UpdateWorkspaceUserSerializer(serializers.ModelSerializer):

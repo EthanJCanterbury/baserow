@@ -41,7 +41,8 @@ export default {
       )
     },
     isConfigured() {
-      return this.$config.public.baserowEnterpriseAssistantLLMModel !== null
+      const settings = this.workspace.assistant_settings || {}
+      return !!(settings.ai_type && settings.ai_model)
     },
   },
   mounted() {

@@ -332,6 +332,17 @@
   "assistantSidebarItem": {
     "title": "Kuma AI"
   },
+  "assistantWorkspaceSettings": {
+    "tabTitle": "Kuma AI",
+    "title": "Kuma AI Settings",
+    "description": "Configure which AI provider and model the Kuma AI assistant uses in this workspace. The selected provider must have an API key configured in the Generative AI settings.",
+    "aiTypeLabel": "AI Provider",
+    "aiModelLabel": "AI Model",
+    "noSelection": "-- Disabled --",
+    "submitButton": "Save",
+    "changedTitle": "Settings saved",
+    "changedDescription": "The Kuma AI settings have been updated successfully."
+  },
   "assistantPanel": {
     "title": "AI Assistant",
     "close": "Close AI Assistant",

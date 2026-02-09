@@ -15,6 +15,7 @@ __all__ = [
 
 class WorkspaceSerializer(serializers.ModelSerializer):
     generative_ai_models_enabled = serializers.SerializerMethodField()
+    assistant_settings = serializers.SerializerMethodField()
 
     class Meta:
         model = Workspace
@@ -22,14 +23,20 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "generative_ai_models_enabled",
+            "assistant_settings",
         )
         extra_kwargs = {
             "id": {"read_only": True},
             "generative_ai_models_enabled": {"read_only": True},
+            "assistant_settings": {"read_only": True},
         }
 
     def get_generative_ai_models_enabled(self, object):
         return generative_ai_model_type_registry.get_enabled_models_per_type(object)
+
+    def get_assistant_settings(self, object):
+        settings = object.generative_ai_models_settings or {}
+        return settings.get("_assistant", {})
 
 
 def get_generative_ai_settings_serializer():
