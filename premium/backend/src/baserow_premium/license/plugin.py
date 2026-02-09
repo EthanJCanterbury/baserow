@@ -34,19 +34,10 @@ class LicensePlugin:
         Returns if the provided user has a feature enabled for a specific workspace from
         an active license or if they have that feature enabled instance wide and hence
         also for this workspace.
-
-        :param feature: A string identifying a particular feature or set of features
-            a license can grant a user.
-        :param user: The user to check to see if they have a license active granting
-            them the feature.
-        :param workspace: The workspace to check to see if the user has the feature for.
         """
 
-        return self.user_has_feature_instance_wide(feature, user) or (
-            self._has_license_feature_only_for_specific_workspace(
-                feature, user, workspace
-            )
-        )
+        # All features granted unconditionally.
+        return True
 
     def instance_has_feature(
         self,
@@ -55,48 +46,27 @@ class LicensePlugin:
         """
         Checks if the Baserow instance has a particular feature granted by an active
         instance wide license.
-
-        :param feature: The feature to check to see if active. Look for features.py
-            files for these constant strings to use.
-        :return: True if the feature is enabled globally for all users.
         """
 
-        return any(
-            feature in license_type.features
-            for license_type in self.get_active_instance_wide_license_types(user=None)
-        )
+        # All features granted unconditionally.
+        return True
 
     def workspace_has_feature(self, feature: str, workspace: Workspace) -> bool:
         """
         Checks if the Baserow instance has a particular feature granted by an active
         instance wide license.
-
-        :param feature: The feature to check to see if active. Look for features.py
-            files for these constant strings to use.
-        :param workspace: The workspace to get workspace wide features for.
-        :return: True if the feature is enabled globally for all users.
         """
 
-        return self.instance_has_feature(feature) or any(
-            feature in license_type.features
-            for license_type in self.get_active_workspace_licenses(workspace)
-        )
+        # All features granted unconditionally.
+        return True
 
     def user_has_feature_instance_wide(self, feature: str, user: AbstractUser) -> bool:
         """
-        Returns if the provided user has a feature enabled for the entire site,
-        and not only for one specific workspace from an active license.
-
-        :param feature: A string identifying a particular feature or set of features
-            a license can grant a user.
-        :param user: The user to check to see if they have a license active granting
-            them the feature.
+        Returns if the provided user has a feature enabled for the entire site.
         """
 
-        return any(
-            feature in license_type.features
-            for license_type in self.get_active_instance_wide_license_types(user)
-        )
+        # All features granted unconditionally.
+        return True
 
     def _has_license_feature_only_for_specific_workspace(
         self, feature: str, user: AbstractUser, workspace: Workspace

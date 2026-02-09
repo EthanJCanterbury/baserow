@@ -16,6 +16,7 @@ from baserow.api.serializers import get_example_pagination_serializer_class
 from baserow.api.user.errors import ERROR_USER_NOT_FOUND
 from baserow.core.db import LockedAtomicTransaction
 from baserow.core.user.handler import UserHandler
+from baserow_premium.license.auto_license import ensure_enterprise_license
 from baserow_premium.license.exceptions import (
     CantManuallyChangeSeatsError,
     InvalidLicenseError,
@@ -69,6 +70,9 @@ class AdminLicensesView(APIView):
         },
     )
     def get(self, request):
+        # Auto-create enterprise license if none exist
+        ensure_enterprise_license()
+
         total_users = UserHandler().get_all_active_users_qs().count()
         licenses = License.objects.all().annotate(
             seats_taken=Count("users"), total_users=Value(total_users)

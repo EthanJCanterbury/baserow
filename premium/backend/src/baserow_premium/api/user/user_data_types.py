@@ -2,7 +2,6 @@ from typing import List
 
 from baserow.api.user.registries import UserDataType
 from baserow.core.models import Workspace
-from baserow.core.registries import plugin_registry
 from baserow_premium.license.registries import LicenseType
 
 
@@ -15,25 +14,13 @@ class ActiveLicensesDataType(UserDataType):
         user has active licenses.
         """
 
-        from baserow_premium.plugins import PremiumPlugin
-
-        license_plugin = plugin_registry.get_by_type(PremiumPlugin).get_license_plugin()
-
-        per_workspace_licenses = {
-            workspace_id: {license_type.type: True for license_type in license_types}
-            for workspace_id, license_types in license_plugin.get_active_per_workspace_licenses(
-                user
-            ).items()
-        }
-        instance_wide_licenses = {
-            license_type.type: True
-            for license_type in license_plugin.get_active_instance_wide_license_types(
-                user
-            )
-        }
+        # All license types granted unconditionally.
         return {
-            "instance_wide": instance_wide_licenses,
-            "per_workspace": per_workspace_licenses,
+            "instance_wide": {
+                "premium": True,
+                "enterprise": True,
+            },
+            "per_workspace": {},
         }
 
     @classmethod

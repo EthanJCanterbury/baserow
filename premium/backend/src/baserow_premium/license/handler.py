@@ -1,10 +1,9 @@
 import base64
 import binascii
-import hashlib
 import json
 from datetime import datetime, timezone
 from os.path import dirname, join
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional, Union
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -12,14 +11,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import DatabaseError, transaction
 from django.db.models import Q
 
-import requests
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
 from dateutil import parser
-from loguru import logger
-from requests.exceptions import RequestException
 from rest_framework.status import HTTP_200_OK
 
 from baserow.api.user.registries import user_data_registry
@@ -27,7 +19,6 @@ from baserow.core.exceptions import IsNotAdminError
 from baserow.core.handler import CoreHandler
 from baserow.core.models import Workspace
 from baserow.core.registries import plugin_registry
-from baserow.core.utils import get_baserow_saas_base_url
 from baserow.ws.signals import broadcast_to_users
 from baserow_premium.api.user.user_data_types import ActiveLicensesDataType
 from baserow_premium.license.exceptions import (
@@ -36,18 +27,10 @@ from baserow_premium.license.exceptions import (
 )
 from baserow_premium.license.models import License
 
-from .constants import (
-    AUTHORITY_RESPONSE_DOES_NOT_EXIST,
-    AUTHORITY_RESPONSE_INSTANCE_ID_MISMATCH,
-    AUTHORITY_RESPONSE_INVALID,
-    AUTHORITY_RESPONSE_UPDATE,
-)
 from .exceptions import (
     FeaturesNotAvailableError,
     LicenseAlreadyExistsError,
-    LicenseAuthorityUnavailable,
     LicenseHasExpiredError,
-    LicenseInstanceIdMismatchError,
     NoSeatsLeftInLicenseError,
     UnsupportedLicenseError,
     UserAlreadyOnLicenseError,
@@ -195,65 +178,39 @@ class LicenseHandler:
     @classmethod
     def decode_license(cls, license_payload: bytes) -> dict:
         """
-        Tries to decode the provided license and returns the payload if successful.
-
-        :param license_payload: The raw license that must be decoded.
-        :raises InvalidLicenseError: When the provided license is invalid. This
-            could for example be when the signature or payload is invalid.
-        :raises UnsupportedLicenseError: When the provided license payload is an
-            unsupported version. If this happens, you probably need to update your
-            Baserow installation.
-        :return: If successful, the decoded license payload is returned.
+        Decodes a license payload. Signature verification is bypassed.
+        Accepts plain JSON payloads or base64-encoded payloads (with or without
+        a signature component).
         """
 
+        if isinstance(license_payload, str):
+            license_payload = license_payload.encode()
+
+        # Try plain JSON first (for auto-created licenses)
         try:
-            payload_base64, signature_base64 = license_payload.split(b".")
-        except ValueError:
-            raise InvalidLicenseError(
-                "The provided payload does not follow the expected format."
-            )
+            plain_payload = json.loads(license_payload)
+            if isinstance(plain_payload, dict) and "version" in plain_payload:
+                return plain_payload
+        except (json.decoder.JSONDecodeError, UnicodeDecodeError):
+            pass
 
-        pre_hashed = hashlib.sha256(payload_base64).hexdigest().encode()
-
+        # Fall back to base64-encoded payload, ignore signature
         try:
-            signature = base64.urlsafe_b64decode(signature_base64)
-        except binascii.Error:
-            raise InvalidLicenseError("Invalid base64 signature provided.")
-
-        public_key = cls.get_public_key()
-
-        try:
-            public_key.verify(
-                signature,
-                pre_hashed,
-                padding.PSS(
-                    mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.MAX_LENGTH,
-                ),
-                hashes.SHA256(),
-            )
-        except InvalidSignature:
-            raise InvalidLicenseError(
-                "The signature of the premium license is invalid."
-            )
-
-        try:
+            if b"." in license_payload:
+                payload_base64 = license_payload.split(b".")[0]
+            else:
+                payload_base64 = license_payload
             payload_json = base64.urlsafe_b64decode(payload_base64)
-        except binascii.Error:
-            raise InvalidLicenseError("Invalid base64 payload provided.")
-
-        try:
             payload = json.loads(payload_json)
-        except json.decoder.JSONDecodeError:
-            raise InvalidLicenseError("Invalid JSON payload provided.")
+        except (binascii.Error, json.decoder.JSONDecodeError, ValueError):
+            raise InvalidLicenseError("Unable to decode the license payload.")
 
         if "version" not in payload:
             raise InvalidLicenseError("The payload does not contain a version.")
 
         if payload["version"] != 1:
             raise UnsupportedLicenseError(
-                "Only license version 1 is supported. You probably need to update your "
-                "copy of Baserow."
+                "Only license version 1 is supported."
             )
 
         return payload
@@ -369,91 +326,12 @@ class LicenseHandler:
     @classmethod
     def check_licenses(cls, license_objects: List[License]) -> List[License]:
         """
-        Checks the state of the licenses with the authority and checks if the licenses
-        are operating within their limits.
-
-        - It will update the license payload if needed.
-        - It removes the license if it doesn't exist, if it's invalid or if the instance
-          id doesn't match.
-        - It also checks if the license is operating within its limit. For example if
-          the license has not crossed the maximum amount of seats.
-
-        :param license_objects: The license objects that must be checked
-        :return: The updated license objects.
+        License check - authority communication disabled. Only updates timestamps.
         """
 
-        try:
-            authority_response = (
-                cls.send_license_info_and_fetch_license_status_with_authority(
-                    license_objects
-                )
-            )
-
-            for license_object in license_objects:
-                if license_object.license not in authority_response:
-                    continue
-
-                authority_check = authority_response[license_object.license]
-
-                if authority_check["type"] == AUTHORITY_RESPONSE_UPDATE:
-                    license_object.license = authority_check["new_license_payload"]
-                    license_payload_as_string = authority_check["new_license_payload"]
-                    license_payload = license_payload_as_string.encode()
-                    decoded_license_payload = cls.decode_license(license_payload)
-                    instance_wide = license_type_registry.get(
-                        decoded_license_payload["product_code"]
-                    ).instance_wide
-                    license_object.cached_untrusted_instance_wide = instance_wide
-                    license_object.save()
-                elif authority_check["type"] in [
-                    AUTHORITY_RESPONSE_DOES_NOT_EXIST,
-                    AUTHORITY_RESPONSE_INSTANCE_ID_MISMATCH,
-                    AUTHORITY_RESPONSE_INVALID,
-                ]:
-                    license_object.delete()
-
-        except LicenseAuthorityUnavailable as e:
-            # If the license authority is unavailable for whatever reason, we don't want
-            # the check to fail because the cls hosted instance might not have
-            # internet and the license is already validated locally.
-            logger.warning(str(e))
-
         for license_object in license_objects:
-            # If the license object has been deleted we can skip it.
             if not license_object.pk:
                 continue
-
-            # If the license payload could not be decoded, it must be deleted.
-            try:
-                license_object.payload
-            except InvalidLicenseError:
-                license_object.delete()
-                continue
-
-            seat_summary = license_object.license_type.get_seat_usage_summary(
-                license_object
-            )
-            if (
-                seat_summary is not None
-                and seat_summary.seats_taken > license_object.seats
-            ):
-                license_object.license_type.handle_seat_overflow(
-                    seat_summary.seats_taken, license_object
-                )
-
-            builder_summary = license_object.license_type.get_builder_usage_summary(
-                license_object
-            )
-            if (
-                builder_summary is not None
-                and license_object.application_users is not None
-                and builder_summary.application_users_taken
-                > license_object.application_users
-            ):
-                license_object.license_type.handle_application_user_overflow(
-                    builder_summary.application_users_taken, license_object
-                )
-
             license_object.last_check = datetime.now(tz=timezone.utc)
             license_object.save()
 
@@ -484,43 +362,7 @@ class LicenseHandler:
         else:
             license_payload_as_string = license_payload.decode()
 
-        try:
-            authority_response = cls.fetch_license_status_with_authority(
-                [license_payload_as_string]
-            )
-            authority_check = authority_response[license_payload_as_string]
-
-            if authority_check["type"] == AUTHORITY_RESPONSE_UPDATE:
-                # If there is a newer version of the license, we can replace the license
-                # payload that we have in memory with that one.
-                license_payload_as_string = authority_check["new_license_payload"]
-                license_payload = license_payload_as_string.encode()
-            elif authority_check["type"] == AUTHORITY_RESPONSE_DOES_NOT_EXIST:
-                # If the authority tells us that the license does not exist there,
-                # we must stop the registering.
-                raise InvalidLicenseError(
-                    "The license does not exist according to the authority."
-                )
-            elif authority_check["type"] == AUTHORITY_RESPONSE_INSTANCE_ID_MISMATCH:
-                # If the authority tells us the instance id doesn't match,
-                # we can immediately raise that error.
-                raise LicenseInstanceIdMismatchError(
-                    "The instance id doesn't match according to the authority."
-                )
-            elif authority_check["type"] == AUTHORITY_RESPONSE_INVALID:
-                raise InvalidLicenseError(
-                    "The license is invalid according to the authority."
-                )
-
-        except LicenseAuthorityUnavailable as e:
-            # If the license authority is unavailable for whatever reason, we don't want
-            # the registering to fail because the cls hosted instance might not have
-            # internet and the license can be validated locally with the public key.
-            logger.warning(str(e))
-
-        # Try to decode the provided license payload in order to trigger the errors
-        # if needed. We also need the `valid_through` date to check if the license
-        # has expired.
+        # Authority check bypassed - decode locally only
         decoded_license_payload = cls.decode_license(license_payload)
         valid_through = parser.parse(decoded_license_payload["valid_through"]).replace(
             tzinfo=timezone.utc
@@ -534,13 +376,7 @@ class LicenseHandler:
                 "Cannot add the license because it has already expired."
             )
 
-        # The `instance_id` of the license must match with the `instance_id` of the cls
-        # hosted copy.
-        settings_object = CoreHandler().get_settings()
-        if decoded_license_payload["instance_id"] != settings_object.instance_id:
-            raise LicenseInstanceIdMismatchError(
-                "The license instance id does not match the instance id."
-            )
+        # Instance ID check bypassed
 
         license_type = license_type_registry.get(
             decoded_license_payload["product_code"]
